@@ -42,6 +42,20 @@ FORCE_EXIT_HOURS=4          # Durée max de détention avant vente forcée
 STRATEGY=FREE_MARKET
 ```
 
+## 🚢 Déploiement
+
+Une fois la configuration terminée (et votre wallet financé), déployez le smart contract sur Polygon :
+
+```bash
+npx hardhat run scripts/deploy.js --network polygon
+```
+
+Le script affichera l'adresse du contrat déployé (ex: `0x...`). Copiez cette adresse et mettez à jour votre fichier `.env` :
+
+```ini
+FLASH_ARBITRAGE_ADDRESS=0xVotreAdresseDeContrat
+```
+
 ## 🧠 Stratégies Disponibles
 
 ### 1. Greedy Direct (Optimisée RPC)
