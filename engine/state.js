@@ -8,7 +8,10 @@ class BotState {
             currentHoldToken: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', // Default USDC
             entryPrice: '1000000', // Mock 1.00 USDC
             entryTimestamp: Date.now(),
-            status: 'SEARCH' // SEARCH, HOLD
+            status: 'SEARCH', // SEARCH, HOLD
+            initialCapital: '0',
+            initialToken: null,
+            startTimestamp: Date.now()
         };
         this.loadState();
     }
@@ -43,6 +46,16 @@ class BotState {
         this.data.currentHoldToken = token;
         this.data.status = 'SEARCH';
         this.saveState();
+    }
+
+    setInitialState(capital, token) {
+        // Only set if not already set (or force reset)
+        if (!this.data.initialCapital || this.data.initialCapital === '0') {
+            this.data.initialCapital = capital.toString();
+            this.data.initialToken = token;
+            this.data.startTimestamp = Date.now();
+            this.saveState();
+        }
     }
 }
 

@@ -1,6 +1,9 @@
 {
-  "currentHoldToken": "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
-  "entryPrice": "1000484398",
-  "entryTimestamp": 1770925452926,
-  "status": "HOLD"
+  "currentHoldToken": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+  "entryPrice": "1000191603",
+  "entryTimestamp": 1770926179731,
+  "status": "HOLD",
+  "initialCapital": "1000000000",
+  "initialToken": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+  "startTimestamp": 1770926177239
 }
