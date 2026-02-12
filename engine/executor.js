@@ -35,6 +35,41 @@ class Executor {
         this.flashArbitrageAddress = process.env.FLASH_ARBITRAGE_ADDRESS;
     }
 
+    async initializeWallet() {
+        console.log("🔍 Scanning wallet for initial balance...");
+        const tokens = this.graphData.tokens;
+        const ERC20_ABI = ["function balanceOf(address owner) view returns (uint256)"];
+
+        for (const [symbol, address] of Object.entries(tokens)) {
+            try {
+                const contract = new ethers.Contract(address, ERC20_ABI, this.signer);
+                const balance = await contract.balanceOf(this.signer.address);
+
+                // Check if balance is significant (> 1 unit approx)
+                if (balance > 1000n) { // minimal threshold
+                    console.log(`✅ Found Initial Capital: ${ethers.formatUnits(balance, 6)} ${symbol} (approx)`); // assuming 6 decimals for simplicity in log, but using BigInt
+
+                    // Set initial state
+                    this.state.setInitialState(balance, address);
+
+                    // Also update basic state to reflect we hold this
+                    this.state.data.currentHoldToken = address;
+                    this.state.data.entryPrice = balance.toString(); // "entryPrice" stores the Balance
+                    this.state.saveState();
+                    return;
+                }
+            } catch (e) {
+                console.warn(`Failed to check balance for ${symbol}: ${e.message}`);
+            }
+        }
+        console.warn("⚠️ No significant stablecoin balance found. Defaulting to config capital.");
+        // Fallback to Config defined in constructor if no balance found
+        const defaultToken = this.graphData.tokens.USDC;
+        const decimals = 6;
+        const configCapital = ethers.parseUnits(this.capitalAmount || "1000", decimals);
+        this.state.setInitialState(configCapital, defaultToken);
+    }
+
     async runCycle() {
         const getName = (addr) => {
             const tokenSymbols = {
@@ -49,6 +84,13 @@ class Executor {
             };
             return tokenSymbols[addr] || addr.slice(0, 6);
         };
+
+
+        // --- AUTO-DETECT INITIAL STATE ---
+        if (!this.state.data.initialCapital || this.state.data.initialCapital === '0') {
+            await this.initializeWallet();
+        }
+
         console.log(`[${this.mode}] Cycle - Status: ${this.state.data.status} | Held: ${getName(this.state.data.currentHoldToken)}`);
 
         // --- FORCE EXIT LOGIC (Timeout) ---
@@ -246,6 +288,40 @@ class Executor {
         } else {
             const thresholdLabel = this.minProfitAmount > 0 ? `${this.minProfitAmount}$` : `${this.minProfitPercent}%`;
             console.log(`No opportunity > ${thresholdLabel}. Best Score: ${ethers.formatUnits(bestScore, 18)}. HOLDing.`);
+        }
+        // --- PROFIT TRACKING ---
+        try {
+            const initialCapital = BigInt(this.state.data.initialCapital || "0");
+            const initialToken = this.state.data.initialToken;
+
+            if (initialCapital > 0n && initialToken) {
+                let currentValueInInitialTerms = currentBalance;
+
+                // If currently holding a different token, estimate value in Initial Token
+                if (currentToken !== initialToken) {
+                    // Try getting price assuming Uniswap V3 (or just use 1:1 if fails, but let's try)
+                    const estimatedOut = await this.priceFetcher.getPrice(currentToken, initialToken, currentBalance, "UNISWAP_V3");
+                    if (estimatedOut > 0n) {
+                        currentValueInInitialTerms = estimatedOut;
+                    }
+                }
+
+                const profit = currentValueInInitialTerms - initialCapital;
+                const profitReadable = ethers.formatUnits(profit, decimals[initialToken] || 6);
+                const decimalAdjust = 10 ** (decimals[initialToken] || 6); // Approximation for % calc
+                // Use Number for % (converting BigInt to string then number to avoid overflow issues with simple math, though balance is usually small enough for Number)
+                const initialCapNum = Number(ethers.formatUnits(initialCapital, decimals[initialToken] || 6));
+                const profitNum = Number(ethers.formatUnits(profit, decimals[initialToken] || 6));
+
+                let percent = "0.000";
+                if (initialCapNum !== 0) {
+                    percent = ((profitNum / initialCapNum) * 100).toFixed(3);
+                }
+
+                console.log(`💰 Total Profit: ${profitReadable} ${getName(initialToken)} (${percent}%) | Initial: ${ethers.formatUnits(initialCapital, 6)} | Current Val: ${ethers.formatUnits(currentValueInInitialTerms, 6)}`);
+            }
+        } catch (e) {
+            console.error("Error calculating profit:", e.message);
         }
     }
 

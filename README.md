@@ -39,7 +39,12 @@ FORCE_EXIT_HOURS=4          # Durée max de détention avant vente forcée
 # Choix de la Stratégie
 # - FREE_MARKET : Cherche le profit pur, accepte tous les risques (frais, slippage, depeg).
 # - TIERED : Applique des pénalités si on swap vers un stablecoin plus risqué (ex: USDC -> MAI).
+# - TIERED : Applique des pénalités si on swap vers un stablecoin plus risqué (ex: USDC -> MAI).
 STRATEGY=FREE_MARKET
+
+# Intervalle de scan (en ms)
+# 30000 = 30s (Safe). 5000 = 5s (Rapide).
+POLLING_INTERVAL=5000
 ```
 
 ## 🚢 Déploiement
