@@ -66,8 +66,13 @@ class Executor {
         // Fallback to Config defined in constructor if no balance found
         const defaultToken = this.graphData.tokens.USDC;
         const decimals = 6;
-        const configCapital = ethers.parseUnits(this.capitalAmount || "1000", decimals);
+        const configCapital = ethers.parseUnits(process.env.CAPITAL_AMOUNT || "1000", decimals);
         this.state.setInitialState(configCapital, defaultToken);
+
+        // Fix: Also set currentHoldToken so the cycle can start
+        this.state.data.currentHoldToken = defaultToken;
+        this.state.data.status = 'SEARCH'; // or HOLD? If we assume we have capital, we HOLD it
+        this.state.saveState();
     }
 
     async runCycle() {
@@ -82,6 +87,7 @@ class Executor {
                 "0xa3Fa99A148fA48D14Ed51d610c367C61876997F1": "MAI",
                 "0x23001F892C0420Ebe9Ec03296093629185498801": "LUSD"
             };
+            if (!addr) return "None";
             return tokenSymbols[addr] || addr.slice(0, 6);
         };
 
@@ -145,11 +151,27 @@ class Executor {
 
 
         // Determine decimals for current token
+        // Determine decimals for current token
         const currentDecimals = decimals[currentToken] || 18;
 
-        // Mock Amount: In prod, query actual balance of contract/wallet
-        // For simulation/backtest/demo analysis, use configured capital
-        const currentBalance = ethers.parseUnits(this.capitalAmount, currentDecimals);
+        let currentBalance;
+        if (this.mode === "PRODUCTION") {
+            // Fetch REAL balance from wallet
+            const ERC20_ABI = ["function balanceOf(address owner) view returns (uint256)"];
+            try {
+                const contract = new ethers.Contract(currentToken, ERC20_ABI, this.signer);
+                currentBalance = await contract.balanceOf(this.signer.address);
+                if (currentBalance === 0n) {
+                    console.warn(`⚠️ Warning: Wallet balance for ${getName(currentToken)} is 0!`);
+                }
+            } catch (e) {
+                console.error(`Failed to fetch balance: ${e.message}`);
+                currentBalance = 0n;
+            }
+        } else {
+            // DEMO / BACKTEST: Use Config/Mock
+            currentBalance = ethers.parseUnits(this.capitalAmount, currentDecimals);
+        }
 
         // Calculate Min Score
         // Normalize everything to 18 decimals for "Score" calculation

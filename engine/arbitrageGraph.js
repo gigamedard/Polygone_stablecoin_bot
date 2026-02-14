@@ -89,20 +89,20 @@ class ArbitrageGraph {
         // USDC <-> USDT
         g.addEdge(USDC, USDT, UNISWAP, 100);
         g.addEdge(USDT, USDC, UNISWAP, 100);
-        g.addEdge(USDC, USDT, CURVE);
-        g.addEdge(USDT, USDC, CURVE);
+        // CURVE (Aave Pool 0x445... seems broken/paused on Polygon for underlying swaps)
+        // g.addEdge(USDC, USDT, CURVE, 4);
+        // g.addEdge(USDT, USDC, CURVE, 4);
 
         // USDT <-> DAI
         g.addEdge(USDT, DAI, UNISWAP, 500);
         g.addEdge(DAI, USDT, UNISWAP, 500);
-        g.addEdge(USDT, DAI, CURVE);
-        g.addEdge(DAI, USDT, CURVE);
+        // g.addEdge(USDT, DAI, CURVE, 4);
+        // g.addEdge(DAI, USDT, CURVE, 4);
 
         // DAI <-> USDC
         g.addEdge(DAI, USDC, UNISWAP, 500);
         g.addEdge(USDC, DAI, UNISWAP, 500);
-        g.addEdge(DAI, USDC, CURVE);
-        g.addEdge(USDC, DAI, CURVE);
+        // g.addEdge(USDC, DAI, CURVE);
 
         // --- EXPANSION ---
 

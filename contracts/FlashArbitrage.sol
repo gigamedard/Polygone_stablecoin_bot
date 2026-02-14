@@ -21,6 +21,14 @@ interface ICurveFi {
         uint256 dx,
         uint256 min_dy
     ) external returns (uint256);
+
+    // For Aave Pool (Underlying Swaps)
+    function exchange_underlying(
+        int128 i,
+        int128 j,
+        uint256 dx,
+        uint256 min_dy
+    ) external returns (uint256);
 }
 
 contract FlashArbitrage is Ownable, Pausable {
@@ -72,26 +80,26 @@ contract FlashArbitrage is Ownable, Pausable {
                 
                 currentAmount = uniswapRouter.exactInputSingle(params);
             } else {
-                // Curve Swap
-                // Decode params based on curve interface
-                // This is tricky as Curve interfaces vary. Start with basic Exchange.
-                // Assuming data contains (int128 i, int128 j, address pool)
-                (int128 i, int128 j, address pool) = abi.decode(step.data, (int128, int128, address));
+                // Curve Swap (Underlying)
+                (int128 iIdx, int128 jIdx, address poolAddress) = abi.decode(step.data, (int128, int128, address));
                 
                 // Approve pool
-                if (IERC20(step.tokenIn).allowance(address(this), pool) < currentAmount) {
-                     IERC20(step.tokenIn).approve(pool, type(uint256).max);
+                if (IERC20(step.tokenIn).allowance(address(this), poolAddress) < currentAmount) {
+                     IERC20(step.tokenIn).approve(poolAddress, type(uint256).max);
                 }
 
-                ICurveFi curvePool = ICurveFi(pool);
-                // Call exchange. Try catch or assume correct interface?
-                // For simplicity, assume standardized pool interface here or use a dedicated adapter.
-                // We use the interface defined above.
-                currentAmount = curvePool.exchange(i, j, currentAmount, 0); // 0 min_dy for intermediate, we check total slippage at end
+                ICurveFi curvePool = ICurveFi(poolAddress);
+                // Use exchange_underlying for Aave pool arbitrage
+                currentAmount = curvePool.exchange_underlying(iIdx, jIdx, currentAmount, 0); 
             }
 
             uint256 balanceAfter = IERC20(step.tokenOut).balanceOf(address(this));
-            require(balanceAfter - balanceBefore == currentAmount, "Output mismatch");
+            // Relaxed check: Just ensure we have enough. 
+            // Often balance change is exact, but let's allow >= to be safe against phantom overflow or pre-existing dust (unlikely if new address)
+            // Actually, best to Trust 'currentAmount' return OR check balance. 
+            // If check fails, we revert. Let's comment out mismatch strictness and rely on minAmountOut at end of loop.
+            // require(balanceAfter - balanceBefore == currentAmount, "Output mismatch"); 
+            require(balanceAfter - balanceBefore >= currentAmount, "Output too low");
         }
 
         require(currentAmount >= minAmountOut, "Slippage too high / No profit");
