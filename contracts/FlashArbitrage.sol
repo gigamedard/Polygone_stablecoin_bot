@@ -54,7 +54,7 @@ contract FlashArbitrage is Ownable, Pausable {
         uint256 amountIn,
         uint256 minAmountOut,
         SwapStep[] calldata steps
-    ) external onlyOwner whenNotPaused {
+    ) external virtual onlyOwner whenNotPaused {
         uint256 currentAmount = amountIn;
         IERC20(steps[0].tokenIn).transferFrom(msg.sender, address(this), amountIn);
 

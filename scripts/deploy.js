@@ -18,6 +18,33 @@ async function main() {
 
     console.log(`FlashArbitrage deployed to: ${address}`);
     console.log("Don't forget to update FLASH_ARBITRAGE_ADDRESS in your .env file!");
+
+    // Deploy GuildFactory (if exists) or just deploying sample GuildVaults manually for testing
+    // Checking if GuildFactory artifact exists... Assuming not from previous steps, so let's deploy a GuildVault directly.
+    // Actually, checking task.md, we didn't explicitly create GuildFactory.sol?
+    // Let's check file list. If no factory, we just deploy a Vault.
+
+    // Deploy a test Asset (MockERC20) for localhost
+    let assetAddress = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"; // Default USDC on Polygon
+    if (hre.network.name === "localhost") {
+        const MockToken = await hre.ethers.getContractFactory("MockERC20");
+        const mockToken = await MockToken.deploy();
+        await mockToken.waitForDeployment();
+        assetAddress = await mockToken.getAddress();
+        console.log(`Mock USDC deployed to: ${assetAddress}`);
+    }
+
+    const GuildVault = await hre.ethers.getContractFactory("GuildVault");
+
+    // Create Shadow Igris Guild
+    const guild1 = await GuildVault.deploy(assetAddress, address, deployer.address); // Bot = Deployer for now
+    await guild1.waitForDeployment();
+    console.log(`Guild 'Shadow Igris' deployed to: ${await guild1.getAddress()}`);
+
+    // Create Shadow Tank Guild
+    const guild2 = await GuildVault.deploy(assetAddress, address, deployer.address);
+    await guild2.waitForDeployment();
+    console.log(`Guild 'Shadow Tank' deployed to: ${await guild2.getAddress()}`);
 }
 
 main().catch((error) => {

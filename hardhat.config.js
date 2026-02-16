@@ -27,5 +27,11 @@ module.exports = {
       url: process.env.POLYGON_RPC_URL || "https://polygon-rpc.com",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
     },
+    localhost: {
+      url: "http://127.0.0.1:8545",
+      chainId: 137,
+      gasPrice: 500000000000, // 500 Gwei
+      gas: 10000000
+    },
   },
 };

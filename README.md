@@ -1,12 +1,14 @@
 # 🤖 Polygon Stablecoin Arbitrage Bot
 
-Ce bot détecte et exécute des opportunités d'arbitrage de stablecoins sur la blockchain Polygon (Mainnet). Il utilise une stratégie "Greedy" optimisée pour minimiser les appels RPC tout en maximisant les profits via des swaps directs sur Uniswap V3 et Curve.
+Ce projet est un bot d'arbitrage automatisé sur la blockchain Polygon, conçu pour générer des profits en exploitant les différences de prix entre stablecoins (USDC, USDT, DAI, FRAX, MAI, LUSD).
 
-## 🚀 Prérequis
+## 🚀 Fonctionnalités Clés
 
-- **Node.js**: v16+
-- **RPC Privé (Obligatoire)** : Alchemy ou Infura (Le RPC public est trop lent/limité).
-- **Wallet** : Clé privée avec des fonds en MATIC (pour le Gas) et Stablecoins (USDC/USDT/DAI) si mode PROD.
+*   **Stratégie Greedy** : Recherche des opportunités de profit direct (1 Hop) pour minimiser les frais de Gas et maximiser la vitesse d'exécution.
+*   **Gestion des Risques (Tiered Risk)** : Privilégie les stablecoins sûrs (USDC, USDT). Applique des pénalités virtuelles aux opportunités impliquant des tokens plus risqués (MAI, LUSD) pour éviter le "bad debt".
+*   **Execution Hybride** : Utilise un Smart Contract dédié (`FlashArbitrage.sol`) pour l'exécution atomique des trades sur Uniswap V3 et Curve (Aave Pool).
+*   **Force Exit** : Vend automatiquement toute position détenue depuis plus de 4 heures pour revenir en USDC, évitant le blocage des fonds.
+*   **Suivi des Profits** : Calcul en temps réel des gains/pertes par rapport au capital initial.
 
 ## 🛠️ Installation
 
@@ -16,89 +18,59 @@ npm install
 
 ## ⚙️ Configuration (.env)
 
-Créez un file `.env` à la racine (voir `.env.example`).
+Créez un fichier `.env` à la racine :
 
 ```ini
 # Connexion Blockchain
 POLYGON_RPC_URL=https://polygon-mainnet.g.alchemy.com/v2/VOTRE_CLE_API
 PRIVATE_KEY=0xVotreCléPrivée
 
-# Modes d'Exécution : BACKTEST | DEMO | PRODUCTION
-# - BACKTEST : Simulation rapide sur données mockées.
-# - DEMO : Lecture seule sur les VRAIS prix du marché (sans transaction).
-# - PRODUCTION : Exécution réelle des swaps (ATTENTION).
+# Modes : BACKTEST | DEMO | PRODUCTION
 MODE=DEMO
 
-# Paramètres de Stratégie
-MIN_PROFIT_PERCENT=0.15      # Seuil de déclenchement (0.15% min)
-MAX_HOPS=7                   # Profondeur de recherche (Non utilisé en mode Greedy)
-CAPITAL_AMOUNT=3000          # Montant simulé en USD
-REVERT_THRESHOLD=0.9995      # Seuil de retour au peg (Optionnel)
-FORCE_EXIT_HOURS=4          # Durée max de détention avant vente forcée
+# Stratégie
+MIN_PROFIT_PERCENT=0.20      # Profit minimum (0.20%)
+MIN_PROFIT_AMOUNT=0          # Profit minimum en valeur absolue (ex: 0.5$)
+FORCE_EXIT_HOURS=4           # Durée max de détention avant vente forcée
+STRATEGY=TIERED              # ou FREE_MARKET
+MAX_HOPS=2                   # (Non utilisé en mode Greedy pur)
 
-# Choix de la Stratégie
-# - FREE_MARKET : Cherche le profit pur, accepte tous les risques (frais, slippage, depeg).
-# - TIERED : Applique des pénalités si on swap vers un stablecoin plus risqué (ex: USDC -> MAI).
-# - TIERED : Applique des pénalités si on swap vers un stablecoin plus risqué (ex: USDC -> MAI).
-STRATEGY=FREE_MARKET
-
-# Intervalle de scan (en ms)
-# 30000 = 30s (Safe). 5000 = 5s (Rapide).
-POLLING_INTERVAL=5000
+# Adresse du Contrat Déployé
+FLASH_ARBITRAGE_ADDRESS=0x...
 ```
-
-## 🚢 Déploiement
-
-Une fois la configuration terminée (et votre wallet financé), déployez le smart contract sur Polygon :
-
-```bash
-npx hardhat run scripts/deploy.js --network polygon
-```
-
-Le script affichera l'adresse du contrat déployé (ex: `0x...`). Copiez cette adresse et mettez à jour votre fichier `.env` :
-
-```ini
-FLASH_ARBITRAGE_ADDRESS=0xVotreAdresseDeContrat
-```
-
-## 🧠 Stratégies Disponibles
-
-### 1. Greedy Direct (Optimisée RPC)
-C'est la stratégie par défaut actuelle.
-- **Principe** : Analyse uniquement les opportunités de swap **direct** (1 Hop) depuis le token détenu.
-- **Avantage** : Extrêmement rapide et économe en requêtes RPC (~6 appels par cycle).
-- **Fonctionnement** :
-  1. Récupère les prix de `TokenActuel -> [USDC, USDT, DAI, FRAX, MAI, LUSD]`.
-  2. Compare le retour sur investissement net (après frais).
-  3. Si `Profit > MIN_PROFIT_PERCENT`, exécute le swap.
-
-### 2. Tiered (Sécurisée)
-Ajoute une couche de sécurité à la logique Greedy.
-- **Tier A** : USDC, USDT
-- **Tier B** : DAI, FRAX
-- **Tier C** : MAI, LUSD
-- **Règle** : Si le bot passe d'un Tier A vers B ou C, une **pénalité virtuelle** est appliquée au score. Il ne fera le trade que si le profit est IMMENSE pour compenser le risque.
 
 ## ▶️ Utilisation
 
-### Lancer une Démonstration (Temps Réel)
-Scanne le marché réel sans exécuter de transactions. Idéal pour monitorer.
+### Lancer le Bot (Mode défini dans .env)
+
+Le script principal détectera automatiquement le mode (DEMO ou PRODUCTION) et lancera la boucle d'arbitrage.
+
+```bash
+node index.js
+```
+
+### Analyse de Marché (Demo)
+
+Pour scanner le marché en temps réel sans exécuter de transactions (toutes les transactions sont simulées) :
+
 ```bash
 node demo_analysis.js
 ```
 
-### Lancer un Backtest (Simulation)
-Simule des scénarios de marché pour valider la logique.
+### Backtest
+
+Pour tester la logique sur des données simulées :
+
 ```bash
 node backtest.js
 ```
 
-### Tests Unitaires
-Vérifie la logique des contrats et du moteur.
-```bash
-npx hardhat test
-```
+## 🏗️ Architecture
 
-## ⚠️ Avertissements
-- **Risque de Perte** : Le trading de stablecoins comporte des risques (Depeg, Smart Contract bug).
-- **RPC** : N'utilisez **JAMAIS** le RPC public pour du trading réel. Vous serez front-run ou rate-limited.
+*   **`engine/executor.js`** : Cerveau du bot. Gère la boucle de décision, le calcul des scores et l'envoi des transactions.
+*   **`engine/priceFetcher.js`** : Récupère les prix en temps réel depuis les DEX (Uniswap V3 Quoter, Curve Pools).
+*   **`contracts/FlashArbitrage.sol`** : Smart Contract Solidity qui exécute les swaps de manière atomique sur la blockchain.
+
+## ⚠️ Avertissement
+
+Ce logiciel est fourni à titre expérimental. Le trading de crypto-monnaies comporte des risques de perte de capital. N'utilisez que des fonds que vous pouvez vous permettre de perdre.
