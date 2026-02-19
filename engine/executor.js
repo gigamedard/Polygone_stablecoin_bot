@@ -327,10 +327,40 @@ class Executor {
 
                 // If currently holding a different token, estimate value in Initial Token
                 if (currentToken !== initialToken) {
-                    // Try getting price assuming Uniswap V3 (or just use 1:1 if fails, but let's try)
-                    const estimatedOut = await this.priceFetcher.getPrice(currentToken, initialToken, currentBalance, "UNISWAP_V3");
+                    let estimatedOut = 0n;
+
+                    // 1. Try to find a direct path in graph to get correct metadata (fee)
+                    const neighbor = this.graph.getNeighbors(currentToken).find(n => n.token === initialToken);
+
+                    if (neighbor) {
+                        estimatedOut = await this.priceFetcher.getPrice(currentToken, initialToken, currentBalance, neighbor.protocol, neighbor.fee);
+                    }
+
+                    // 2. Fallback: If no direct neighbor or failed, try common V3 fees
+                    if (estimatedOut === 0n) {
+                        const fees = [100, 500, 3000];
+                        for (const f of fees) {
+                            estimatedOut = await this.priceFetcher.getPrice(currentToken, initialToken, currentBalance, "UNISWAP_V3", f);
+                            if (estimatedOut > 0n) break;
+                        }
+                    }
+
                     if (estimatedOut > 0n) {
                         currentValueInInitialTerms = estimatedOut;
+                    } else {
+                        // 3. LAST RESORT: Normalize decimals assuming 1:1 PEG
+                        // This prevents the 10^12 error when mixing 18 dec tokens with 6 dec capital
+                        const currentDecimals = decimals[currentToken] || 18;
+                        const initialDecimals = decimals[initialToken] || 6;
+
+                        if (currentDecimals > initialDecimals) {
+                            currentValueInInitialTerms = currentBalance / (10n ** BigInt(currentDecimals - initialDecimals));
+                        } else if (initialDecimals > currentDecimals) {
+                            currentValueInInitialTerms = currentBalance * (10n ** BigInt(initialDecimals - currentDecimals));
+                        } else {
+                            currentValueInInitialTerms = currentBalance;
+                        }
+                        logger.warn(`Could not fetch market price for ${getName(currentToken)} -> ${getName(initialToken)}. Using 1:1 PEG estimation.`);
                     }
                 }
 
