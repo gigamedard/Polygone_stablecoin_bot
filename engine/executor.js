@@ -34,6 +34,12 @@ class Executor {
 
         this.targetPrice = ethers.parseUnits("1.0", 18); // 1.00 normalized
         this.flashArbitrageAddress = process.env.FLASH_ARBITRAGE_ADDRESS;
+
+        // Log Disabled Tokens
+        const disabledTokensRaw = process.env.DISABLED_TOKENS || "";
+        if (disabledTokensRaw.trim().length > 0) {
+            logger.warn(`🚫 DISABLED TOKENS: [${disabledTokensRaw}] - These will be excluded from trading.`);
+        }
     }
 
     async initializeWallet() {
@@ -220,8 +226,28 @@ class Executor {
         // Instead of complex pathfinding (DFS/BFS), we look for direct swaps
         // from currentToken -> any other token that yields a profit.
 
-        // Get all direct connections (Multiple edges per token possible)
-        const neighbors = this.graph.getNeighbors(currentToken);
+        // Get all direct neighbors
+        let neighbors = this.graph.getNeighbors(currentToken);
+
+        // --- FILTER DISABLED TOKENS ---
+        const disabledTokensRaw = process.env.DISABLED_TOKENS || "";
+        const disabledSymbols = disabledTokensRaw.split(",").map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+
+        if (disabledSymbols.length > 0) {
+            // We need a way to map Symbol -> Address or Address -> Symbol
+            // Since we only have getName(addr), we can iterate neighbors and check their name
+            neighbors = neighbors.filter(edge => {
+                const tokenSymbol = getName(edge.token).toUpperCase();
+                const isDisabled = disabledSymbols.includes(tokenSymbol);
+                if (isDisabled) {
+                    // Only log once (rarely) or just skip silently to avoid spam?
+                    // Let's log if we haven't logged recently? No, filtering silently is better for loop
+                    // But maybe log once at startup? (Done in constructor ideally, but here works for hot-swap)
+                }
+                return !isDisabled;
+            });
+        }
+        // -----------------------------
 
         // Iterate over all available direct paths
         for (const edge of neighbors) {
