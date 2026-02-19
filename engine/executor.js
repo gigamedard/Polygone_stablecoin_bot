@@ -346,7 +346,38 @@ class Executor {
                     }
 
                     if (estimatedOut > 0n) {
-                        currentValueInInitialTerms = estimatedOut;
+                        // SANITY CHECK: Compare Market Price vs 1:1 PEG
+                        // Calculate what the 1:1 Peg Value SHOULD be
+                        const currentDecimals = decimals[currentToken] || 18;
+                        const initialDecimals = decimals[initialToken] || 6;
+
+                        let pegValue = 0n;
+                        if (currentDecimals > initialDecimals) {
+                            pegValue = currentBalance / (10n ** BigInt(currentDecimals - initialDecimals));
+                        } else if (initialDecimals > currentDecimals) {
+                            pegValue = currentBalance * (10n ** BigInt(initialDecimals - currentDecimals));
+                        } else {
+                            pegValue = currentBalance;
+                        }
+
+                        // Calculate Ratio: (Market / Peg) * 100
+                        // Use number for ratio check
+                        const marketNum = parseFloat(ethers.formatUnits(estimatedOut, initialDecimals));
+                        const pegNum = parseFloat(ethers.formatUnits(pegValue, initialDecimals));
+
+                        let ratio = 0;
+                        if (pegNum > 0) {
+                            ratio = marketNum / pegNum;
+                        }
+
+                        // Threshold: If Market is < 50% or > 150% of Peg -> LIQUIDITY ERROR likely
+                        if (ratio < 0.5 || ratio > 1.5) {
+                            logger.warn(`⚠️ Profit Check: Market Price Deviation (${ratio.toFixed(2)}x). Market: ${marketNum} | Peg: ${pegNum}. Using PEG Value.`);
+                            currentValueInInitialTerms = pegValue;
+                        } else {
+                            currentValueInInitialTerms = estimatedOut;
+                        }
+
                     } else {
                         // 3. LAST RESORT: Normalize decimals assuming 1:1 PEG
                         // This prevents the 10^12 error when mixing 18 dec tokens with 6 dec capital
