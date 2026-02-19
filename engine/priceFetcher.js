@@ -1,4 +1,5 @@
 const { ethers } = require("ethers");
+const logger = require("../logger");
 require("dotenv").config();
 
 class PriceFetcher {
@@ -25,7 +26,7 @@ class PriceFetcher {
                 return await this.getCurvePrice(tokenIn, tokenOut, amountIn);
             }
         } catch (e) {
-            console.error(`Error fetching price for ${protocol}:`, e.message);
+            logger.error(`Error fetching price for ${protocol}:`, e.message);
             return 0n;
         }
         return 0n;
@@ -64,7 +65,8 @@ class PriceFetcher {
             );
             return amountOut;
         } catch (e) {
-            // console.error(`[Uniswap] Fetch Error: ${e.message}`); // Too noisy
+            // logger.error(`[Uniswap] Fetch Error (${tokenIn} -> ${tokenOut}): ${e.message}`);
+
             return 0n;
         }
     }
@@ -93,7 +95,7 @@ class PriceFetcher {
         const j = tokenIndex[ethers.getAddress(tokenOut)];
 
         if (i === undefined || j === undefined) {
-            console.warn("[Curve] Unsupported pair");
+            logger.warn("[Curve] Unsupported pair");
             return 0n;
         }
 
@@ -102,7 +104,7 @@ class PriceFetcher {
             const amountOut = await pool.get_dy(i, j, amountIn);
             return amountOut;
         } catch (e) {
-            console.error(`[Curve] Fetch Error: ${e.message}`);
+            logger.error(`[Curve] Fetch Error: ${e.message}`);
             return 0n;
         }
     }

@@ -10,12 +10,17 @@
 
 require("dotenv").config();
 const Executor = require("./engine/executor");
+const logger = require("./logger");
+
 
 async function runBot() {
     const mode = process.env.MODE || "DEMO";
-    console.log("---------------------------------------------------");
-    console.log(`🤖 Polygon Arbitrage Bot - Starting in ${mode} Mode`);
-    console.log("---------------------------------------------------");
+    logger.info("---------------------------------------------------");
+    logger.info(`🤖 Polygon Arbitrage Bot - Starting in ${mode} Mode`);
+    logger.info("---------------------------------------------------");
+
+    // Also show startup on console so user knows it's running
+    console.log(`🤖 Bot Running in ${mode} Mode. Watching for opportunities... (See logs.md for details)`);
 
     const executor = new Executor();
 
@@ -24,25 +29,25 @@ async function runBot() {
         try {
             await executor.runCycle();
         } catch (error) {
-            console.error("❌ Cycle Error:", error);
+            logger.error("❌ Cycle Error:", error);
         }
 
         // Default: 30 seconds delay between scans (to respect RPC limits & save API credits)
         const delayMs = process.env.POLLING_INTERVAL ? parseInt(process.env.POLLING_INTERVAL) : 30000;
 
-        console.log(`Waiting ${delayMs / 1000}s before next scan...`);
+        logger.info(`Waiting ${delayMs / 1000}s before next scan...`);
         await new Promise(resolve => setTimeout(resolve, delayMs));
-        console.log("---------------------------------------------------");
+        logger.info("---------------------------------------------------");
     }
 }
 
 // Handle unexpected errors
 process.on('uncaughtException', (err) => {
-    console.error('Uncaught Exception:', err);
+    logger.error('Uncaught Exception:', err);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 runBot();

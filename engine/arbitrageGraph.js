@@ -76,7 +76,7 @@ class ArbitrageGraph {
         const USDT = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F";
         const DAI = "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063";
         // New Tokens
-        const FRAX = "0x45C32FA6Df82ead1e2eF74D17B76547eDdfAFF42";
+        const FRAX = "0x45C32FA6Df82ead1e2eF74D17B76547eDdfAFF42"; // Correct Checksum
         const USDC_NATIVE = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"; // USDC (Native)
         const MAI = "0xa3Fa99A148fA48D14Ed51d610c367C61876997F1"; // miMATIC
         const LUSD = "0x23001F892C0420Ebe9Ec03296093629185498801";
@@ -134,13 +134,15 @@ class ArbitrageGraph {
         g.addEdge(USDC, LUSD, UNISWAP, 500);
 
         // --- EXPANDED MESH (USDT & Others) ---
-        // USDT <-> FRAX
-        g.addEdge(USDT, FRAX, UNISWAP, 500);
-        g.addEdge(FRAX, USDT, UNISWAP, 500);
+        // USDT <-> FRAX (Removed 500 tier - Empty/Error)
+        // g.addEdge(USDT, FRAX, UNISWAP, 500);
+        // g.addEdge(FRAX, USDT, UNISWAP, 500);
 
-        // USDT <-> MAI
-        g.addEdge(USDT, MAI, UNISWAP, 500);
-        g.addEdge(MAI, USDT, UNISWAP, 500);
+
+        // USDT <-> MAI (Removed 500 tier - Empty/Error)
+        // g.addEdge(USDT, MAI, UNISWAP, 500);
+        // g.addEdge(MAI, USDT, UNISWAP, 500);
+
 
         // USDT <-> LUSD
         g.addEdge(USDT, LUSD, UNISWAP, 500);
@@ -163,18 +165,35 @@ class ArbitrageGraph {
         g.addEdge(MAI, FRAX, UNISWAP, 500);
         g.addEdge(FRAX, MAI, UNISWAP, 500);
 
+        // --- FEE TIER 100 (0.01%) - STABLECOIN OPTIMIZED ---
+        // High liquidity stable pairs often live here
+        g.addEdge(MAI, USDT, UNISWAP, 100);
+        g.addEdge(USDT, MAI, UNISWAP, 100);
+
+        g.addEdge(MAI, USDC, UNISWAP, 100);
+        g.addEdge(USDC, MAI, UNISWAP, 100);
+
+        g.addEdge(MAI, DAI, UNISWAP, 100);
+        g.addEdge(DAI, MAI, UNISWAP, 100);
+
+        g.addEdge(FRAX, USDT, UNISWAP, 100);
+        g.addEdge(USDT, FRAX, UNISWAP, 100);
+
+
         // --- FEE TIER FALLBACKS (3000 / 0.3%) ---
         // Add 0.3% pools for volatile or low liquidity pairs
-        g.addEdge(USDT, FRAX, UNISWAP, 3000);
-        g.addEdge(FRAX, USDT, UNISWAP, 3000);
-        g.addEdge(USDT, MAI, UNISWAP, 3000);
-        g.addEdge(MAI, USDT, UNISWAP, 3000);
+        // g.addEdge(USDT, FRAX, UNISWAP, 3000);
+        // g.addEdge(FRAX, USDT, UNISWAP, 3000);
+        // g.addEdge(USDT, MAI, UNISWAP, 3000);
+        // g.addEdge(MAI, USDT, UNISWAP, 3000);
+
         g.addEdge(USDT, LUSD, UNISWAP, 3000);
         g.addEdge(LUSD, USDT, UNISWAP, 3000);
-        g.addEdge(USDC, MAI, UNISWAP, 3000);
-        g.addEdge(MAI, USDC, UNISWAP, 3000);
+        // g.addEdge(USDC, MAI, UNISWAP, 3000);
+        // g.addEdge(MAI, USDC, UNISWAP, 3000);
 
         return { graph: g, tokens: { USDC, USDT, DAI, FRAX, USDC_NATIVE, MAI, LUSD } };
+
     }
 }
 
