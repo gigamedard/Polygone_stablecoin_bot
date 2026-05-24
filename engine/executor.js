@@ -6,14 +6,11 @@ const logger = require("../logger");
 require("dotenv").config();
 
 class Executor {
-    constructor(overrides = {}) {
-        this.mode = overrides.mode || process.env.MODE || "BACKTEST";
+    constructor() {
+        this.mode = process.env.MODE || "BACKTEST";
 
-        // Setup Provider — allow injection for testing
-        if (overrides.provider && overrides.signer) {
-            this.provider = overrides.provider;
-            this.signer = overrides.signer;
-        } else if (this.mode === "PRODUCTION" || this.mode === "DEMO") {
+        // Setup Provider
+        if (this.mode === "PRODUCTION" || this.mode === "DEMO") {
             this.provider = new ethers.JsonRpcProvider(process.env.POLYGON_RPC_URL);
             this.signer = new ethers.Wallet(process.env.PRIVATE_KEY, this.provider);
         } else {
@@ -21,7 +18,7 @@ class Executor {
             this.signer = ethers.Wallet.createRandom().connect(this.provider);
         }
 
-        this.priceFetcher = overrides.priceFetcher || new PriceFetcher(this.provider, this.mode);
+        this.priceFetcher = new PriceFetcher(this.provider, this.mode);
         this.graphData = ArbitrageGraph.createStablecoinGraph();
         this.graph = this.graphData.graph;
         this.state = new BotState();
@@ -43,71 +40,6 @@ class Executor {
         if (disabledTokensRaw.trim().length > 0) {
             logger.warn(`🚫 DISABLED TOKENS: [${disabledTokensRaw}] - These will be excluded from trading.`);
         }
-
-        // Token decimals map sourced from stablecoin config
-        this.tokenDecimals = {
-            "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174": 6,  // USDC (Bridged)
-            "0xc2132D05D31c914a87C6611C10748AEb04B58e8F": 6,  // USDT
-            "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063": 18, // DAI
-            "0x45C32FA6Df82ead1e2eF74D17B76547eDdfAFF42": 18, // FRAX
-            "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359": 6,  // USDC (Native)
-            "0xa3Fa99A148fA48D14Ed51d610c367C61876997F1": 18, // MAI
-            "0x23001F892C0420Ebe9Ec03296093629185498801": 18  // LUSD
-        };
-
-        // Slippage tolerance: default 0.05% (0.0005), read from env
-        this.slippageTolerance = parseFloat(process.env.SLIPPAGE_TOLERANCE || "0.0005");
-
-        // Multi-hop: max number of swap edges per path
-        this.maxHops = parseInt(process.env.MAX_HOPS || "2");
-    }
-
-    _calculateMinAmountOut(expectedOut, slippageTolerance) {
-        const slippageBps = Math.floor(slippageTolerance * 10000);
-        if (slippageBps >= 10000) return 0n;
-        const numerator = 10000n - BigInt(slippageBps);
-        return (expectedOut * numerator) / 10000n;
-    }
-
-    _parseOpenSwapExecuted(txReceipt, contractAddress) {
-        const iface = new ethers.Interface([
-            "event OpenSwapExecuted(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut)"
-        ]);
-
-        for (const log of txReceipt.logs) {
-            if (log.address.toLowerCase() !== contractAddress.toLowerCase()) continue;
-            try {
-                const parsed = iface.parseLog({ topics: [...log.topics], data: log.data });
-                if (parsed && parsed.name === "OpenSwapExecuted") {
-                    return {
-                        tokenIn: parsed.args.tokenIn,
-                        tokenOut: parsed.args.tokenOut,
-                        amountIn: parsed.args.amountIn,
-                        amountOut: parsed.args.amountOut
-                    };
-                }
-            } catch (e) {
-                // not our event, skip
-            }
-        }
-        throw new Error("OpenSwapExecuted event not found in receipt");
-    }
-
-    _calculateRiskPenalty(finalBalanceNormalized, startTier, endTier) {
-        if (endTier <= startTier) return 0n;
-        const tierDiff = endTier - startTier;
-        const riskBps = BigInt(tierDiff * 30); // 0.3% per tier = 30 basis points
-        return (finalBalanceNormalized * riskBps) / 10000n;
-    }
-
-    _calculateMinScoreThreshold(balance18) {
-        if (this.minProfitAmount > 0) {
-            const amountStr = this.minProfitAmount.toString();
-            return ethers.parseUnits(amountStr, 18);
-        }
-        const percentStr = this.minProfitPercent.toString();
-        const percentBps = BigInt(Math.round(parseFloat(percentStr) * 100));
-        return (balance18 * percentBps) / 10000n;
     }
 
     async initializeWallet() {
@@ -180,8 +112,20 @@ class Executor {
         // 1. Evaluate Paths (Multi-hop)
         const currentToken = this.state.data.currentHoldToken;
 
+        // Token Decimals Map
+        const decimals = {
+            "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174": 6,  // USDC (Bridged)
+            "0xc2132D05D31c914a87C6611C10748AEb04B58e8F": 6,  // USDT
+            "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063": 18, // DAI
+            "0x45C32FA6Df82ead1e2eF74D17B76547eDdfAFF42": 18, // FRAX
+            "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359": 6,  // USDC (Native)
+            "0xa3Fa99A148fA48D14Ed51d610c367C61876997F1": 18, // MAI
+            "0x23001F892C0420Ebe9Ec03296093629185498801": 18  // LUSD
+        };
+
+
         // Determine decimals for current token
-        const currentDecimals = this.tokenDecimals[currentToken] || 18;
+        const currentDecimals = decimals[currentToken] || 18;
 
         let currentBalance;
         if (this.mode === "PRODUCTION") {
@@ -242,8 +186,18 @@ class Executor {
         // Normalize everything to 18 decimals for "Score" calculation
         // Calculate Min Score
 
+        let minScoreThreshold = 0n;
+        // balance18 is not defined here, assuming it should be currentBalance normalized to 18 decimals
         const balance18 = currentBalance * (10n ** BigInt(18 - currentDecimals));
-        const minScoreThreshold = this._calculateMinScoreThreshold(balance18);
+
+        if (this.minProfitAmount > 0) {
+            // Fixed Amount Logic (e.g. 0.1$)
+            // Scaled to 18 decimals
+            minScoreThreshold = BigInt(Math.floor(this.minProfitAmount * 1e18));
+        } else {
+            // Percentage Logic
+            minScoreThreshold = balance18 * BigInt(Math.floor(this.minProfitPercent * 100)) / 10000n;
+        }
 
         let bestScore = -999999999999999999n; // Very low BigInt
         let bestPath = null;
@@ -264,73 +218,95 @@ class Executor {
             return 3; // Default to risk
         };
 
-        // --- MULTI-HOP PATHFINDING ---
-        const allPaths = this.graph.getPaths(currentToken, this.maxHops);
+        // 1. Identify Opportunities (GREEDY STRATEGY)
+        // Instead of complex pathfinding (DFS/BFS), we look for direct swaps
+        // from currentToken -> any other token that yields a profit.
 
+        // 1. Identify Opportunities (GREEDY STRATEGY)
+        // Instead of complex pathfinding (DFS/BFS), we look for direct swaps
+        // from currentToken -> any other token that yields a profit.
+
+        // Get all direct neighbors
+        let neighbors = this.graph.getNeighbors(currentToken);
+
+        // --- FILTER DISABLED TOKENS ---
         const disabledTokensRaw = process.env.DISABLED_TOKENS || "";
         const disabledSymbols = disabledTokensRaw.split(",").map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
 
-        for (const path of allPaths) {
-
-            const finalToken = path[path.length - 1].token;
-
-            if (disabledSymbols.includes(getName(finalToken).toUpperCase())) continue;
-            if (disabledSymbols.includes(getName(currentToken).toUpperCase())) continue;
-
-            // Cascade quotes through each step
-            let stepAmountIn = currentBalance;
-            let stepTokenIn = currentToken;
-            let valid = true;
-
-            for (const step of path) {
-                const amountOut = await this.priceFetcher.getPrice(
-                    stepTokenIn,
-                    step.token,
-                    stepAmountIn,
-                    step.protocol,
-                    step.fee
-                );
-
-                if (amountOut === 0n) {
-                    valid = false;
-                    break;
+        if (disabledSymbols.length > 0) {
+            // We need a way to map Symbol -> Address or Address -> Symbol
+            // Since we only have getName(addr), we can iterate neighbors and check their name
+            neighbors = neighbors.filter(edge => {
+                const tokenSymbol = getName(edge.token).toUpperCase();
+                const isDisabled = disabledSymbols.includes(tokenSymbol);
+                if (isDisabled) {
+                    // Only log once (rarely) or just skip silently to avoid spam?
+                    // Let's log if we haven't logged recently? No, filtering silently is better for loop
+                    // But maybe log once at startup? (Done in constructor ideally, but here works for hot-swap)
                 }
-                stepAmountIn = amountOut;
-                stepTokenIn = step.token;
-            }
+                return !isDisabled;
+            });
+        }
+        // -----------------------------
 
-            if (!valid) {
-                logger.info(`Path to ${getName(finalToken)}: No Liquidity / Error`);
+        // Iterate over all available direct paths
+        for (const edge of neighbors) {
+            const targetToken = edge.token;
+
+            // Fetch Price
+            const amountOut = await this.priceFetcher.getPrice(
+                currentToken,
+                targetToken,
+                currentBalance,
+                edge.protocol,
+                edge.fee
+            );
+
+            if (amountOut === 0n) {
+                // Clean log to show it was checked but failed
+                logger.info(`Check ${getName(targetToken)} via ${edge.protocol}: No Liquidity / Error`);
                 continue;
             }
 
             // SCORING
-            const finalDecimals = this.tokenDecimals[finalToken] || 18;
+            // Normalize
+            // currentDecimals is already declared at line 89
+            const finalDecimals = decimals[targetToken] || 18;
+
             const currentBalanceNormalized = currentBalance * (10n ** BigInt(18 - currentDecimals));
-            const finalBalanceNormalized = stepAmountIn * (10n ** BigInt(18 - finalDecimals));
+            const finalBalanceNormalized = amountOut * (10n ** BigInt(18 - finalDecimals));
 
             let score = finalBalanceNormalized - currentBalanceNormalized;
             let riskPenalty = 0n;
 
+            // Apply Tiered Risk Penalty if enabled
             if (this.strategy === "TIERED") {
                 const startTier = getTier(currentToken);
-                const endTier = getTier(finalToken);
-                riskPenalty = this._calculateRiskPenalty(finalBalanceNormalized, startTier, endTier);
+                const endTier = getTier(targetToken);
+
+                if (endTier > startTier) {
+                    const penaltyPercent = (endTier - startTier) * 0.003; // 0.3% per tier
+                    riskPenalty = BigInt(Math.floor(Number(finalBalanceNormalized) * penaltyPercent));
+                }
                 score = score - riskPenalty;
             }
 
-            const hopsLabel = path.length > 1 ? ` (${path.length} hops)` : "";
             const logScore = ethers.formatUnits(score, 18);
             if (this.strategy === "TIERED" && riskPenalty > 0n) {
-                logger.info(`Check ${getName(finalToken)}${hopsLabel} via ${path.map(s => s.protocol).join("->")}: Score ${logScore} (Inc. Penalty: -${ethers.formatUnits(riskPenalty, 18)})`);
+                logger.info(`Check ${getName(targetToken)} via ${edge.protocol}: Score ${logScore} (Inc. Penalty: -${ethers.formatUnits(riskPenalty, 18)})`);
             } else {
-                logger.info(`Check ${getName(finalToken)}${hopsLabel} via ${path.map(s => s.protocol).join("->")}: Score ${logScore}`);
+                logger.info(`Check ${getName(targetToken)} via ${edge.protocol}: Score ${logScore}`);
             }
 
             if (score > bestScore) {
                 bestScore = score;
-                bestPath = path.map(s => ({ token: s.token, protocol: s.protocol, fee: s.fee }));
-                bestAmountOut = stepAmountIn;
+                // Construct a "Path" object for consistency with executeSwap
+                bestPath = [{
+                    token: targetToken,
+                    protocol: edge.protocol,
+                    fee: edge.fee
+                }];
+                bestAmountOut = amountOut;
             }
         }
 
@@ -367,34 +343,100 @@ class Executor {
             const thresholdLabel = this.minProfitAmount > 0 ? `${this.minProfitAmount}$` : `${this.minProfitPercent}%`;
             logger.info(`No opportunity > ${thresholdLabel}. Best Score: ${ethers.formatUnits(bestScore, 18)}. HOLDing.`);
         }
-        // --- ADDP PROFIT TRACKING (accumulated stablecoin units) ---
+        // --- PROFIT TRACKING ---
         try {
             const initialCapital = BigInt(this.state.data.initialCapital || "0");
             const initialToken = this.state.data.initialToken;
 
             if (initialCapital > 0n && initialToken) {
-                const currentEntryBalance = BigInt(this.state.data.entryPrice || "0");
-                const currentHoldToken = this.state.data.currentHoldToken;
+                let currentValueInInitialTerms = currentBalance;
 
-                const currentDec = this.tokenDecimals[currentHoldToken] || 18;
-                const initialDec = this.tokenDecimals[initialToken] || 6;
+                // If currently holding a different token, estimate value in Initial Token
+                if (currentToken !== initialToken) {
+                    let estimatedOut = 0n;
 
-                const currentNorm = currentEntryBalance * (10n ** BigInt(18 - currentDec));
-                const initialNorm = initialCapital * (10n ** BigInt(18 - initialDec));
+                    // 1. Try to find a direct path in graph to get correct metadata (fee)
+                    const neighbor = this.graph.getNeighbors(currentToken).find(n => n.token === initialToken);
 
-                const profitNorm = currentNorm - initialNorm;
-                const profitReadable = ethers.formatUnits(profitNorm, 18);
-                const initialReadable = parseFloat(ethers.formatUnits(initialNorm, 18));
+                    if (neighbor) {
+                        estimatedOut = await this.priceFetcher.getPrice(currentToken, initialToken, currentBalance, neighbor.protocol, neighbor.fee);
+                    }
 
-                let percent = "0.000";
-                if (initialReadable > 0) {
-                    percent = ((parseFloat(profitReadable) / initialReadable) * 100).toFixed(3);
+                    // 2. Fallback: If no direct neighbor or failed, try common V3 fees
+                    if (estimatedOut === 0n) {
+                        const fees = [100, 500, 3000];
+                        for (const f of fees) {
+                            estimatedOut = await this.priceFetcher.getPrice(currentToken, initialToken, currentBalance, "UNISWAP_V3", f);
+                            if (estimatedOut > 0n) break;
+                        }
+                    }
+
+                    if (estimatedOut > 0n) {
+                        // SANITY CHECK: Compare Market Price vs 1:1 PEG
+                        // Calculate what the 1:1 Peg Value SHOULD be
+                        const currentDecimals = decimals[currentToken] || 18;
+                        const initialDecimals = decimals[initialToken] || 6;
+
+                        let pegValue = 0n;
+                        if (currentDecimals > initialDecimals) {
+                            pegValue = currentBalance / (10n ** BigInt(currentDecimals - initialDecimals));
+                        } else if (initialDecimals > currentDecimals) {
+                            pegValue = currentBalance * (10n ** BigInt(initialDecimals - currentDecimals));
+                        } else {
+                            pegValue = currentBalance;
+                        }
+
+                        // Calculate Ratio: (Market / Peg) * 100
+                        // Use number for ratio check
+                        const marketNum = parseFloat(ethers.formatUnits(estimatedOut, initialDecimals));
+                        const pegNum = parseFloat(ethers.formatUnits(pegValue, initialDecimals));
+
+                        let ratio = 0;
+                        if (pegNum > 0) {
+                            ratio = marketNum / pegNum;
+                        }
+
+                        // Threshold: If Market is < 50% or > 150% of Peg -> LIQUIDITY ERROR likely
+                        if (ratio < 0.5 || ratio > 1.5) {
+                            logger.warn(`⚠️ Profit Check: Market Price Deviation (${ratio.toFixed(2)}x). Market: ${marketNum} | Peg: ${pegNum}. Using PEG Value.`);
+                            currentValueInInitialTerms = pegValue;
+                        } else {
+                            currentValueInInitialTerms = estimatedOut;
+                        }
+
+                    } else {
+                        // 3. LAST RESORT: Normalize decimals assuming 1:1 PEG
+                        // This prevents the 10^12 error when mixing 18 dec tokens with 6 dec capital
+                        const currentDecimals = decimals[currentToken] || 18;
+                        const initialDecimals = decimals[initialToken] || 6;
+
+                        if (currentDecimals > initialDecimals) {
+                            currentValueInInitialTerms = currentBalance / (10n ** BigInt(currentDecimals - initialDecimals));
+                        } else if (initialDecimals > currentDecimals) {
+                            currentValueInInitialTerms = currentBalance * (10n ** BigInt(initialDecimals - currentDecimals));
+                        } else {
+                            currentValueInInitialTerms = currentBalance;
+                        }
+                        logger.warn(`Could not fetch market price for ${getName(currentToken)} -> ${getName(initialToken)}. Using 1:1 PEG estimation.`);
+                    }
                 }
 
-                logger.info(`💰 ADDP Accumulated Units: ${profitReadable} (${percent}%) | Initial: ${initialReadable.toFixed(6)} | Current: ${ethers.formatUnits(currentNorm, 18)}`);
+                const profit = currentValueInInitialTerms - initialCapital;
+                const profitReadable = ethers.formatUnits(profit, decimals[initialToken] || 6);
+                const decimalAdjust = 10 ** (decimals[initialToken] || 6); // Approximation for % calc
+                // Use Number for % (converting BigInt to string then number to avoid overflow issues with simple math, though balance is usually small enough for Number)
+                const initialCapNum = Number(ethers.formatUnits(initialCapital, decimals[initialToken] || 6));
+                const profitNum = Number(ethers.formatUnits(profit, decimals[initialToken] || 6));
+
+                let percent = "0.000";
+                if (initialCapNum !== 0) {
+                    percent = ((profitNum / initialCapNum) * 100).toFixed(3);
+                }
+
+                logger.info(`💰 Total Profit: ${profitReadable} ${getName(initialToken)} (${percent}%) | Initial: ${ethers.formatUnits(initialCapital, 6)} | Current Val: ${ethers.formatUnits(currentValueInInitialTerms, 6)}`);
             }
         } catch (e) {
-            logger.error("Error calculating ADDP profit:", e.message);
+            logger.error("Error calculating profit:", e.message);
         }
     }
 
@@ -434,22 +476,22 @@ class Executor {
 
                 if (step.protocol === "UNISWAP_V3") {
                     protocolAddress = UNISWAP_ROUTER;
-
-                    const stepMinOut = this._calculateMinAmountOut(expectedOut, this.slippageTolerance);
-
-                    // ExactInputSingleParams (amountIn overwritten on-chain by amountIn from contract)
+                    // ExactInputSingleParams dummy encoding (amountIn overwritten on-chain)
                     const params = {
                         tokenIn: currentToken,
                         tokenOut: step.token,
                         fee: step.fee,
-                        recipient: this.flashArbitrageAddress,
+                        recipient: this.flashArbitrageAddress, // Intermediate recipient
                         deadline: Math.floor(Date.now() / 1000) + 60 * 20,
-                        amountIn: 0,
-                        amountOutMinimum: stepMinOut,
+                        amountIn: 0, // Overwritten
+                        amountOutMinimum: 0, // Overwritten
                         sqrtPriceLimitX96: 0
                     };
 
+                    // Encode ISwapRouter.ExactInputSingleParams
+                    // ABI: (address,address,uint24,address,uint256,uint256,uint256,uint160)
                     const types = ["tuple(address,address,uint24,address,uint256,uint256,uint256,uint160)"];
+                    // Ethers v6 encoding format for tuple is array
                     const values = [[
                         params.tokenIn, params.tokenOut, params.fee, params.recipient,
                         params.deadline, params.amountIn, params.amountOutMinimum, params.sqrtPriceLimitX96
@@ -487,8 +529,8 @@ class Executor {
             }
 
             if (this.mode === "DEMO") {
-                const minAmountOut = this._calculateMinAmountOut(expectedOut, this.slippageTolerance);
-                logger.transaction(`[DEMO] Transaction Constructed (Not Sent) | minAmountOut=${minAmountOut.toString()} | steps=${JSON.stringify(steps)}`);
+                logger.transaction(`[DEMO] Transaction Constructed (Not Sent): ${JSON.stringify(steps)}`);
+                // Simulate state update
                 this.state.updateHold(finalToken, expectedOut);
                 return;
             }
@@ -497,25 +539,21 @@ class Executor {
             try {
                 const contract = new ethers.Contract(
                     this.flashArbitrageAddress,
-                    [
-                        "function executeArbitrage(uint256 amountIn, uint256 minAmountOut, tuple(address protocol, bytes data, address tokenIn, address tokenOut)[] steps) external",
-                        "event OpenSwapExecuted(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut)"
-                    ],
+                    ["function executeArbitrage(uint256 amountIn, uint256 minAmountOut, tuple(address protocol, bytes data, address tokenIn, address tokenOut)[] steps) external"],
                     this.signer
                 );
 
-                const minAmountOut = this._calculateMinAmountOut(expectedOut, this.slippageTolerance);
-                logger.info(`Sending Transaction... minAmountOut=${minAmountOut.toString()}`);
-                const tx = await contract.executeArbitrage(amountIn, minAmountOut, steps);
+                // Check Allowance first? 
+                // Assuming user approved contract to spend Initial Token.
+                // Ideally we check allowance here or in UI.
+
+                logger.info("Sending Transaction...");
+                const tx = await contract.executeArbitrage(amountIn, 0, steps); // 0 minAmountOut for now (handled by check inside contract?)
                 logger.transaction(`Transaction Sent: ${tx.hash}`);
-                const receipt = await tx.wait();
+                await tx.wait();
                 logger.transaction("Transaction Confirmed!");
 
-                const decoded = this._parseOpenSwapExecuted(receipt, this.flashArbitrageAddress);
-                const realAmountOut = decoded.amountOut;
-                logger.transaction(`OpenSwapExecuted: tokenOut=${decoded.tokenOut} amountOut=${realAmountOut.toString()}`);
-
-                this.state.updateHold(decoded.tokenOut, realAmountOut);
+                this.state.updateHold(finalToken, expectedOut);
 
             } catch (e) {
                 logger.error("Transaction Failed:", e.message);

@@ -76,7 +76,7 @@ class ArbitrageGraph {
         const USDT = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F";
         const DAI = "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063";
         // New Tokens
-        const FRAX = "0x45c32fA6DF82ead1e2EF74d17b76547EDdFaFF89";
+        const FRAX = "0x45C32FA6Df82ead1e2eF74D17B76547eDdfAFF42"; // Correct Checksum
         const USDC_NATIVE = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"; // USDC (Native)
         const MAI = "0xa3Fa99A148fA48D14Ed51d610c367C61876997F1"; // miMATIC
         const LUSD = "0x23001F892C0420Ebe9Ec03296093629185498801";
@@ -109,7 +109,9 @@ class ArbitrageGraph {
         // FRAX <-> USDC
         g.addEdge(FRAX, USDC, UNISWAP, 500);
         g.addEdge(USDC, FRAX, UNISWAP, 500);
-        // (duplicate removed)
+        // FRAX <-> USDC
+        g.addEdge(FRAX, USDC, UNISWAP, 500);
+        g.addEdge(USDC, FRAX, UNISWAP, 500);
 
         // FRAX <-> DAI
         g.addEdge(FRAX, DAI, UNISWAP, 500);

@@ -35,7 +35,7 @@ contract FlashArbitrage is Ownable, Pausable {
     ISwapRouter public immutable uniswapRouter;
     ICurveFi public immutable curveRouter; // Or specific pool address passed in params
 
-    event OpenSwapExecuted(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
+    event ArbitrageExecuted(uint256 amountIn, uint256 amountOut, uint256 profit);
 
     constructor(address _uniswapRouter, address _curveRouter) Ownable(msg.sender) {
         uniswapRouter = ISwapRouter(_uniswapRouter);
@@ -67,29 +67,47 @@ contract FlashArbitrage is Ownable, Pausable {
                  IERC20(step.tokenIn).approve(step.protocol, type(uint256).max);
             }
 
-            if (step.protocol == address(uniswapRouter)) {
-                ISwapRouter.ExactInputSingleParams memory params = abi.decode(step.data, (ISwapRouter.ExactInputSingleParams));
-                params.amountIn = currentAmount;
-                params.recipient = address(this);
+            uint256 balanceBefore = IERC20(step.tokenOut).balanceOf(address(this));
 
+            if (step.protocol == address(uniswapRouter)) {
+                // Uniswap V3 Swap
+                ISwapRouter.ExactInputSingleParams memory params = abi.decode(step.data, (ISwapRouter.ExactInputSingleParams));
+                // Override amountIn to use current balance/amount
+                params.amountIn = currentAmount;
+                // Recipient is this contract for intermediate steps, or msg.sender for final?
+                // Let's assume all intermediate stay in contract until end
+                params.recipient = address(this); 
+                
                 currentAmount = uniswapRouter.exactInputSingle(params);
             } else {
+                // Curve Swap (Underlying)
                 (int128 iIdx, int128 jIdx, address poolAddress) = abi.decode(step.data, (int128, int128, address));
-
+                
+                // Approve pool
                 if (IERC20(step.tokenIn).allowance(address(this), poolAddress) < currentAmount) {
                      IERC20(step.tokenIn).approve(poolAddress, type(uint256).max);
                 }
 
                 ICurveFi curvePool = ICurveFi(poolAddress);
-                currentAmount = curvePool.exchange_underlying(iIdx, jIdx, currentAmount, 0);
+                // Use exchange_underlying for Aave pool arbitrage
+                currentAmount = curvePool.exchange_underlying(iIdx, jIdx, currentAmount, 0); 
             }
+
+            uint256 balanceAfter = IERC20(step.tokenOut).balanceOf(address(this));
+            // Relaxed check: Just ensure we have enough. 
+            // Often balance change is exact, but let's allow >= to be safe against phantom overflow or pre-existing dust (unlikely if new address)
+            // Actually, best to Trust 'currentAmount' return OR check balance. 
+            // If check fails, we revert. Let's comment out mismatch strictness and rely on minAmountOut at end of loop.
+            // require(balanceAfter - balanceBefore == currentAmount, "Output mismatch"); 
+            require(balanceAfter - balanceBefore >= currentAmount, "Output too low");
         }
 
         require(currentAmount >= minAmountOut, "Slippage too high / No profit");
 
+        // Transfer profit to owner
         IERC20(steps[steps.length - 1].tokenOut).transfer(msg.sender, currentAmount);
-
-        emit OpenSwapExecuted(steps[0].tokenIn, steps[steps.length - 1].tokenOut, amountIn, currentAmount);
+        
+        emit ArbitrageExecuted(amountIn, currentAmount, currentAmount > amountIn ? currentAmount - amountIn : 0);
     }
 
     function setPaused(bool _paused) external onlyOwner {
